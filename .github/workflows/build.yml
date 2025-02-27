@@ -59,6 +59,7 @@ jobs:
       - name: Login to Docker
         uses: nick-fields/retry@v3
         with:
+          timeout_seconds: 30
           max_attempts: 10
           command: docker login ghcr.io -u ${{ github.actor }} -p ${{ github.token }}
       - name: Image Name
@@ -129,6 +130,7 @@ jobs:
       - name: Login to Docker
         uses: nick-fields/retry@v3
         with:
+          timeout_seconds: 30
           max_attempts: 10
           command: docker login ghcr.io -u ${{ github.actor }} -p ${{ github.token }}
       - name: Image Name
@@ -184,6 +186,7 @@ jobs:
       - name: Login to Docker
         uses: nick-fields/retry@v3
         with:
+          timeout_seconds: 30
           max_attempts: 10
           command: docker login ghcr.io -u ${{ github.actor }} -p ${{ github.token }}
       - name: Image Name
@@ -244,6 +247,7 @@ jobs:
       - name: Login to Docker
         uses: nick-fields/retry@v3
         with:
+          timeout_seconds: 30
           max_attempts: 10
           command: docker login ghcr.io -u ${{ github.actor }} -p ${{ github.token }}
       - name: Build ffmpeg
