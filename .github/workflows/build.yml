@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-latest,ubuntu-24.04-arm]
+        runner: [ubuntu-latest]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Free Disk-Space
@@ -308,12 +308,12 @@ jobs:
           sleep 15
           gh release create "$TAGNAME" --target "master" --title "$NAME" latest_artifacts/*
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GIT_TOKEN: ${{ github.token }}
       - name: Update Wiki
         run: ./util/update_wiki.sh artifacts ${{ steps.create_release.outputs.tag_name }}
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GIT_TOKEN: ${{ github.token }}
       - name: Prune old releases
         run: ./util/prunetags.sh
         env:
-          GITHUB_TOKEN: ${{ github.token }}
+          GIT_TOKEN: ${{ github.token }}
