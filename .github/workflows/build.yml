@@ -45,7 +45,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        runner: self-hosted
+        runner: [self-hosted]
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Free Disk-Space
