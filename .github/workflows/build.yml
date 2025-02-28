@@ -309,6 +309,7 @@ jobs:
           gh release create "$TAGNAME" --target "master" --title "$NAME" latest_artifacts/*
         env:
           GIT_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.GIT_TOKEN }}
       - name: Update Wiki
         run: ./util/update_wiki.sh artifacts ${{ steps.create_release.outputs.tag_name }}
         env:
