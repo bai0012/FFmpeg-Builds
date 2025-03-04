@@ -311,10 +311,10 @@ jobs:
         env:
           GIT_TOKEN: ${{ github.token }}
           GH_TOKEN: ${{ secrets.GIT_TOKEN }}
-      - name: Update Wiki
-        run: ./util/update_wiki.sh artifacts ${{ steps.create_release.outputs.tag_name }}
-        env:
-          GIT_TOKEN: ${{ github.token }}
+      #- name: Update Wiki
+      #  run: ./util/update_wiki.sh artifacts ${{ steps.create_release.outputs.tag_name }}
+      #  env:
+      #    GIT_TOKEN: ${{ github.token }}
       - name: Prune old releases
         run: ./util/prunetags.sh
         env:
