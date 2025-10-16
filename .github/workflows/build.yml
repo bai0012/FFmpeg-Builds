@@ -346,7 +346,6 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
 
-
   package_deb:
     name: Package .deb file
     if: success()
@@ -386,17 +385,20 @@ jobs:
           fi
           echo "ARCH=${ARCH}" >> $GITHUB_OUTPUT
 
-          # 从 variant 字符串中提取版本信息，如果为空则默认为 master
-          FFMPEG_VERSION=$(echo "${{ matrix.variant }}" | awk '{print $2}')
-          if [[ -z "$FFMPEG_VERSION" ]]; then
-            FFMPEG_VERSION="git-master"
+          # Create a Debian-compliant version number. It must start with a digit.
+          UPSTREAM_VERSION_BASE=$(echo "${{ matrix.variant }}" | awk '{print $2}')
+          if [[ -z "$UPSTREAM_VERSION_BASE" ]]; then
+            # For master branch builds, e.g., 0.0.0~git20251016-1
+            UPSTREAM_VERSION="0.0.0~git$(date +%Y%m%d)"
           else
-            FFMPEG_VERSION="release-${FFMPEG_VERSION}"
+            # For release builds like "8.0", e.g., 8.0.0~snapshot20251016-1
+            UPSTREAM_VERSION="${UPSTREAM_VERSION_BASE}.0~snapshot$(date +%Y%m%d)"
           fi
-          
-          VERSION="${FFMPEG_VERSION}-$(date +%Y%m%d)-1"
+
+          DEBIAN_REVISION="1"
+          VERSION="${UPSTREAM_VERSION}-${DEBIAN_REVISION}"
           PACKAGE_NAME="ffmpeg-custom"
-          DEB_ROOT="${PACKAGE_NAME}-${VERSION}"
+          DEB_ROOT="${PACKAGE_NAME}_${VERSION}_${ARCH}" # Use compliant name for root dir
           echo "DEB_ROOT=${DEB_ROOT}" >> $GITHUB_OUTPUT
           echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
           echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
@@ -428,6 +430,7 @@ jobs:
           name: ffmpeg-deb-${{ matrix.target }}-${{ steps.slug.outputs.variant_slug }}
           path: "*.deb"
           overwrite: true
+
 
 
 
