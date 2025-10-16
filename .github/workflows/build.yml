@@ -344,3 +344,83 @@ jobs:
         run: ./util/prunetags.sh
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
+
+
+  package_deb:
+    name: Package .deb file
+    if: success()
+    needs: build_ffmpeg
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 只为 Linux 目标创建 deb 包
+        target: [linux64, linuxarm64]
+        # 确保这里的 variant 列表与 build_ffmpeg job 中的一致
+        variant: [nonfree, nonfree-shared, 'nonfree 8.0', 'nonfree-shared 8.0']
+    steps:
+      - name: Free Disk-Space
+        run: df -h && sudo apt-get clean && docker system prune -a -f && df -h
+
+      - name: Download FFmpeg artifact
+        uses: actions/download-artifact@v4
+        with:
+          # 根据 target 和 variant 构造 artifact 的名字
+          name: ffmpeg-${{ matrix.target }}-${{ replace(matrix.variant, ' ', '-') }}
+          path: ./ffmpeg-artifact
+
+      - name: Prepare package structure and metadata
+        id: prep
+        run: |
+          set -ex
+          ARCH="amd64"
+          if [[ "${{ matrix.target }}" == "linuxarm64" ]]; then
+            ARCH="arm64"
+          fi
+          echo "ARCH=${ARCH}" >> $GITHUB_OUTPUT
+
+          # 从 variant 字符串中提取版本信息，如果为空则默认为 master
+          FFMPEG_VERSION=$(echo "${{ matrix.variant }}" | awk '{print $2}')
+          if [[ -z "$FFMPEG_VERSION" ]]; then
+            FFMPEG_VERSION="git-master"
+          else
+            FFMPEG_VERSION="release-${FFMPEG_VERSION}"
+          fi
+          
+          VERSION="${FFMPEG_VERSION}-$(date +%Y%m%d)-1"
+          PACKAGE_NAME="ffmpeg-custom"
+          DEB_ROOT="${PACKAGE_NAME}-${VERSION}"
+          echo "DEB_ROOT=${DEB_ROOT}" >> $GITHUB_OUTPUT
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_OUTPUT
+          echo "VERSION=${VERSION}" >> $GITHUB_OUTPUT
+
+          mkdir -p "${DEB_ROOT}/DEBIAN"
+          mkdir -p "${DEB_ROOT}/usr/local/bin"
+
+          # 解压构建产物并移动二进制文件
+          tar -xvf ./ffmpeg-artifact/*.tar.xz -C "${DEB_ROOT}/usr/local/bin/" --strip-components=1
+
+      - name: Create control file
+        run: |
+          cat <<EOF > ${{ steps.prep.outputs.DEB_ROOT }}/DEBIAN/control
+          Package: ${{ steps.prep.outputs.PACKAGE_NAME }}
+          Version: ${{ steps.prep.outputs.VERSION }}
+          Architecture: ${{ steps.prep.outputs.ARCH }}
+          Maintainer: GitHub Actions <actions@github.com>
+          Description: Custom FFmpeg build (${{ matrix.variant }}) for ${{ matrix.target }}
+           This package provides a custom build of FFmpeg.
+           Built via GitHub Actions from repository ${{ github.repository }}.
+          EOF
+
+      - name: Build the .deb package
+        run: dpkg-deb --build ${{ steps.prep.outputs.DEB_ROOT }}
+
+      - name: Upload .deb package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-deb-${{ matrix.target }}-${{ replace(matrix.variant, ' ', '-') }}
+          path: "*.deb"
+          overwrite: true
+
+
