@@ -293,54 +293,89 @@ jobs:
           overwrite: true
           path: artifacts/*
   publish_release:
-    name: Publish release
-    if: ${{ !cancelled() && ( github.event_name == 'push' || github.event_name == 'schedule' || github.event.inputs.doRelease == 'true' ) && needs.build_ffmpeg.result == 'success' }}
-    needs: build_ffmpeg
+    name: Publish Release
+    # 仅在计划任务或手动触发时运行
+    if: ${{ !cancelled() && ( github.event_name == 'schedule' || github.event.inputs.doRelease == 'true' ) }}
+    # 必须等待 FFmpeg 编译和 DEB 打包都成功
+    needs: [build_ffmpeg, package_deb]
     runs-on: ubuntu-latest
     steps:
       - name: Free Disk-Space
-        run: df -h && sudo apt-get clean && docker system prune -a -f && sudo rm -rf /opt/ghc /usr/local/.ghcup /usr/local/lib/android && df -h
-      - name: Checkout
+        run: df -h && sudo apt-get clean && docker system prune -a -f && df -h
+
+      - name: Checkout repository for utility scripts
         uses: actions/checkout@v4
-      - name: Download artifacts
+
+      - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: ffmpeg-*
-          merge-multiple: true
+          # 不指定 name 会下载本次 workflow run 产生的所有 artifact
           path: artifacts
-      - name: Create release
+
+      - name: Prepare files and create release
         id: create_release
         run: |
           set -xe
           shopt -s nullglob
+          
+          # 创建一个扁平目录，存放所有待发布的产物文件
+          RELEASE_FILES_DIR="release_assets"
+          mkdir "$RELEASE_FILES_DIR"
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" -o -name "*.deb" \) -exec mv {} "$RELEASE_FILES_DIR/" \;
+
+          # 检查是否有任何文件需要发布
+          if [ -z "$(ls -A $RELEASE_FILES_DIR)" ]; then
+            echo "No assets found to release. Exiting."
+            exit 0
+          fi
+          
           RELDATE="$(date +'%Y-%m-%d %H:%M')"
           NAME="Auto-Build $RELDATE"
           TAGNAME="autobuild-$(date +'%Y-%m-%d-%H-%M')"
-          (cd artifacts && sha256sum *.{zip,tar.xz} > checksums.sha256)
-          gh release create "$TAGNAME" --target "master" --title "$NAME" artifacts/*.{zip,tar.xz} artifacts/checksums.*
+
+          # 为所有产物生成校验和
+          (cd "$RELEASE_FILES_DIR" && sha256sum * > checksums.sha256)
+          
+          # 创建 Release 并上传目录中的所有产物
+          gh release create "$TAGNAME" --target "master" --title "$NAME" "$RELEASE_FILES_DIR"/*
+          
           echo "tag_name=${TAGNAME}" >> $GITHUB_OUTPUT
           echo "rel_date=${RELDATE}" >> $GITHUB_OUTPUT
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - name: Update Latest
+
+      - name: Update Latest Tag
+        if: steps.create_release.outputs.tag_name
         run: |
           set -xe
           shopt -s nullglob
+          # a-Shell-commands-for-GitHub-Actions-
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" \) -exec mv {} . \;
+          
           mkdir latest_artifacts
-          ./util/repack_latest.sh latest_artifacts artifacts/*.{zip,tar.xz}
+          ./util/repack_latest.sh latest_artifacts ./*.{zip,tar.xz}
+          
           (cd latest_artifacts && sha256sum *.{zip,tar.xz} > checksums.sha256)
+          
           NAME="Latest Auto-Build (${{ steps.create_release.outputs.rel_date }})"
           TAGNAME="latest"
+          
           gh release delete --cleanup-tag --yes "$TAGNAME" || true
           sleep 15
           gh release create "$TAGNAME" --target "master" --title "$NAME" latest_artifacts/*
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
       - name: Update Wiki
-        run: ./util/update_wiki.sh artifacts ${{ steps.create_release.outputs.tag_name }}
+        if: steps.create_release.outputs.tag_name
+        run: |
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" \) -exec mv {} . \;
+          ./util/update_wiki.sh . ${{ steps.create_release.outputs.tag_name }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
+
       - name: Prune old releases
+        if: steps.create_release.outputs.tag_name
         run: ./util/prunetags.sh
         env:
           GITHUB_TOKEN: ${{ github.token }}
