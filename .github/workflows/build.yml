@@ -2,6 +2,8 @@ name: Build FFmpeg
 
 on:
   push:
+    branches:
+      - master # 仅在 master 分支上触发
     paths-ignore:
       - '**.md'
       - 'LICENSE'
@@ -292,10 +294,12 @@ jobs:
           name: ffmpeg-${{ steps.strs.outputs.artifact_slug }}
           overwrite: true
           path: artifacts/*
-  publish_release:
+
+
+    publish_release:
     name: Publish Release
-    # 仅在计划任务或手动触发时运行
-    if: ${{ !cancelled() && ( github.event_name == 'schedule' || github.event.inputs.doRelease == 'true' ) }}
+    # 在计划任务、手动触发或推送到 master 分支时运行
+    if: ${{ !cancelled() && ( github.event_name == 'schedule' || github.event_name == 'push' || github.event.inputs.doRelease == 'true' ) }}
     # 必须等待 FFmpeg 编译和 DEB 打包都成功
     needs: [build_ffmpeg, package_deb]
     runs-on: ubuntu-latest
@@ -309,26 +313,26 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@v4
         with:
-          # 不指定 name 会下载本次 workflow run 产生的所有 artifact
+          # 下载本次 workflow run 产生的所有 artifact
           path: artifacts
 
-      - name: Prepare files and create release
-        id: create_release
+      - name: Prepare files for release
+        id: prepare_files
         run: |
           set -xe
           shopt -s nullglob
-          
-          # 创建一个扁平目录，存放所有待发布的产物文件
           RELEASE_FILES_DIR="release_assets"
-          mkdir "$RELEASE_FILES_DIR"
+          mkdir -p "$RELEASE_FILES_DIR"
+          # 将所有下载的产物文件（无论在哪个子目录）移动到同一个发布目录中
           find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" -o -name "*.deb" \) -exec mv {} "$RELEASE_FILES_DIR/" \;
+          echo "dir=${RELEASE_FILES_DIR}" >> $GITHUB_OUTPUT
 
-          # 检查是否有任何文件需要发布
-          if [ -z "$(ls -A $RELEASE_FILES_DIR)" ]; then
-            echo "No assets found to release. Exiting."
-            exit 0
-          fi
-          
+      - name: Create Release
+        id: create_release
+        if: steps.prepare_files.outputs.dir != '' && hashFiles(format('{0}/*', steps.prepare_files.outputs.dir)) != ''
+        run: |
+          set -xe
+          RELEASE_FILES_DIR="${{ steps.prepare_files.outputs.dir }}"
           RELDATE="$(date +'%Y-%m-%d %H:%M')"
           NAME="Auto-Build $RELDATE"
           TAGNAME="autobuild-$(date +'%Y-%m-%d-%H-%M')"
@@ -345,14 +349,15 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Update Latest Tag
-        if: steps.create_release.outputs.tag_name
+        if: success() && steps.create_release.outputs.tag_name
         run: |
           set -xe
           shopt -s nullglob
-          # a-Shell-commands-for-GitHub-Actions-
-          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" \) -exec mv {} . \;
+          RELEASE_FILES_DIR="${{ steps.prepare_files.outputs.dir }}"
           
           mkdir latest_artifacts
+          # 将压缩包复制到当前目录以供 repack 脚本使用
+          cp "$RELEASE_FILES_DIR"/*.{zip,tar.xz} .
           ./util/repack_latest.sh latest_artifacts ./*.{zip,tar.xz}
           
           (cd latest_artifacts && sha256sum *.{zip,tar.xz} > checksums.sha256)
@@ -367,19 +372,20 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Update Wiki
-        if: steps.create_release.outputs.tag_name
+        if: success() && steps.create_release.outputs.tag_name
         run: |
-          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.xz" \) -exec mv {} . \;
+          RELEASE_FILES_DIR="${{ steps.prepare_files.outputs.dir }}"
+          # 将压缩包复制到当前目录以供 update_wiki 脚本使用
+          cp "$RELEASE_FILES_DIR"/*.{zip,tar.xz} .
           ./util/update_wiki.sh . ${{ steps.create_release.outputs.tag_name }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
 
       - name: Prune old releases
-        if: steps.create_release.outputs.tag_name
+        if: success() && steps.create_release.outputs.tag_name
         run: ./util/prunetags.sh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-
 
   package_deb:
     name: Package .deb file
